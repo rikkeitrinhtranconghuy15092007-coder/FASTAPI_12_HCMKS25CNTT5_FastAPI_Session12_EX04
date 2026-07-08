@@ -1,0 +1,72 @@
+# Báo Cáo Phân Tích & Hướng Dẫn Triển Khai: Chức Năng Xóa Học Viên
+
+Dự án này triển khai chức năng xóa học viên khỏi hệ thống sử dụng FastAPI và SQLAlchemy ORM, tuân thủ các quy tắc nghiệp vụ, bẫy dữ liệu và xử lý transaction an toàn.
+
+---
+
+## PHẦN 1: PHÂN TÍCH & ĐỀ XUẤT ĐA GIẢI PHÁP
+
+### 1. Phân tích yêu cầu Input / Output
+* **Input:** Tham số `student_id` (kiểu dữ liệu `int`) truyền qua Path Parameter (URL).
+    * Ví dụ: `DELETE /students/1`
+* **Output thành công (Status Code 200 OK):** Trả về thông điệp xác nhận cùng dữ liệu chi tiết của học viên vừa bị xóa để phục vụ việc hiển thị hoặc lưu nhật ký (log).
+    ```json
+    {
+      "message": "Xóa học viên thành công",
+      "data": {
+        "id": 1,
+        "full_name": "Nguyen Van A",
+        "email": "vana@gmail.com"
+      }
+    }
+    ```
+* **Output thất bại (Status Code 404 Not Found):** Trả về lỗi chi tiết khi `student_id` không tồn tại trong hệ thống, tránh việc báo xóa thành công giả.
+    ```json
+    {
+      "detail": "Học viên không tồn tại trong hệ thống"
+    }
+    ```
+
+### 2. Đề xuất 2 giải pháp xử lý Delete trong SQLAlchemy
+* **Giải pháp 1: Tìm trước xóa sau dựa trên đối tượng (ORM Approach)**
+    * *Cách vận hành:* Thực hiện một lệnh Query tìm học viên theo `id`. Nếu tìm thấy đối tượng (object), nạp đối tượng đó vào bộ nhớ của SQLAlchemy, lưu thông tin lại rồi gọi `db.delete(student)` và `db.commit()`.
+* **Giải pháp 2: Xóa trực tiếp bằng câu lệnh điều kiện (Query-level Delete)**
+    * *Cách vận hành:* Thực hiện lệnh xóa trực tiếp dưới Database bằng câu lệnh có kèm bộ lọc điều kiện: `db.query(StudentModel).filter(...).delete()`. Hệ thống sẽ dựa vào số lượng dòng bị ảnh hưởng (affected rows) trả về để xác định bản ghi có tồn tại hay không mà không cần nạp đối tượng lên bộ nhớ trước.
+
+---
+
+## PHẦN 2: SO SÁNH & LỰA CHỌN
+
+### 1. Bảng so sánh các giải pháp
+
+| Tiêu chí | Giải pháp 1: Tìm trước rồi xóa (ORM) | Giải pháp 2: Xóa trực tiếp dưới DB |
+| :--- | :--- | :--- |
+| **Độ dễ hiểu** | Rất cao, luồng xử lý tuần tự (Tìm -> Kiểm tra -> Xóa). | Trung bình, cần hiểu cơ chế nhận diện `affected rows`. |
+| **Số lượng code cần viết** | Nhiều hơn một chút do phải viết thêm hàm tìm kiếm. | Ít hơn, gộp chung trong một câu lệnh thực thi. |
+| **Khả năng kiểm soát lỗi** | Rất chặt chẽ, chủ động bắt lỗi 404 trực quan. | Tốt, kiểm tra dựa trên số dòng phản hồi bằng 0. |
+| **Kiểm tra học viên tồn tại?** | Có, kiểm tra trực tiếp qua thực thể trả về. | Có, dựa trên số dòng bị tác động dưới database. |
+| **Mức độ phù hợp ORM** | Hoàn hảo với triết lý quản lý đối tượng của ORM. | Phù hợp khi cần tối ưu hiệu năng xóa hàng loạt. |
+| **Khả năng tách logic vào Service** | Rất dễ dàng và tường minh. | Có thể tách được nhưng cấu trúc trả về phức tạp hơn. |
+| **Khả năng lấy dữ liệu cũ** | **Dễ dàng** (vì đối tượng đã được nạp vào bộ nhớ trước khi xóa). | **Khó khăn** (bản ghi bị xóa mất trước khi kịp lấy dữ liệu). |
+
+### 2. Chốt lựa chọn giải pháp phù hợp
+**Lựa chọn: Giải pháp 1 (Tìm trước rồi xóa).**
+* *Lý do:* Đề bài yêu cầu phần đầu ra (Output) khi thành công phải trả về thông tin chi tiết (`full_name`, `email`) của học viên vừa bị xóa. Giải pháp 1 giúp hệ thống dễ dàng lấy và giữ lại bản sao thông tin này trước khi thực hiện lệnh xóa vật lý. Cách làm này cũng tuân thủ tuyệt đối các quy tắc nghiệp vụ chặt chẽ của SQLAlchemy ORM và giúp kiểm soát bẫy dữ liệu tốt hơn.
+
+---
+
+## PHẦN 3: HƯỚNG DẪN KIỂM THỬ API (SWAGGER UI)
+
+1.  **Khởi chạy Server:**
+    Tại thư mục `BT5`, gõ lệnh chạy server:
+    ```bash
+    uvicorn main:app --reload
+    ```
+2.  **Truy cập giao diện Test:**
+    Mở trình duyệt và truy cập: `http://127.0.0.1:8000/docs`
+3.  **Khởi tạo dữ liệu mẫu:**
+    Tìm đến endpoint `POST /init-students` -> Bấm **Try it out** -> Bấm **Execute**. Hệ thống sẽ tự động tạo một học viên mẫu có `id: 1` (`Nguyen Van A`).
+4.  **Kiểm thử bẫy lỗi 404 (Học viên không tồn tại):**
+    Mở endpoint `DELETE /students/{student_id}` -> Bấm **Try it out** -> Nhập một ID không tồn tại (Ví dụ: `99`) -> Bấm **Execute**. Hệ thống sẽ trả về lỗi `404 Not Found` kèm lời nhắn `"Học viên không tồn tại trong hệ thống"`.
+5.  **Kiểm thử xóa thành công:**
+    Tại endpoint `DELETE /students/{student_id}` -> Nhập ID là `1` -> Bấm **Execute**. Hệ thống sẽ thực hiện xóa, commit xuống DB và trả về thông tin học viên đã xóa với trạng thái `200 OK`.
